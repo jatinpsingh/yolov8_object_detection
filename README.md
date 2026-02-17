@@ -1,7 +1,24 @@
 # Object Detection & Localization Project
 
-This project implements an object detection system capable of detecting, classifying, and locating multiple objects in a single composite image. It utilizes transfer learning with a pretrained YOLOv8 model.
+A YOLOv8 based object detection pipeline capable of detecting, classifying, and locating multiple objects in a single composite image. This project supports fully retraining YOLOv8 models as well as fine tuning pretrained YOLO models using transfer learning.
 
+## Table of Contents
+- [Project Overview](#project-overview)
+- [Environment Setup](#environment-setup)
+- [Project Structure](#project-structure)
+- [Workflow](#workflow)
+
+## Project Overview
+
+- **Goal:** Build a multi-object detection system.
+- **Model:** YOLOv8 (Ultralytics).
+- **Features:** 
+    - Config-driven training (YAML).
+    - Synthetic composite image generation from single-object source images
+    - Automated train/val/test splitting.
+    - Full re-training and Transfer Learning support.
+    - Inference on new images.
+  
 ## Project Overview
 
 *   **Goal:** Build a multi-object detection system.
@@ -10,80 +27,74 @@ This project implements an object detection system capable of detecting, classif
     2.  Fine-tune a pretrained YOLOv8 model on these composites.
     3.  Evaluate model performance (mAP, Precision, Recall).
     4.  Run inference on new images.
-*   **Model:** YOLOv8 (Ultralytics).
 
-## Setup
+## Environment Setup
 
-### Prerequisites
+This project uses Anaconda or Miniconda environment.
 
-*   Anaconda or Miniconda installed.
-*   Python 3.12 (recommended).
+1. **Create and Activate Environment:**
+   ```bash
+   conda create -n object_detection python=3.12
+   conda activate object_detection
+   ```
 
-### Installation
+2. **Install Dependencies:**
+   Install the required libraries using `pip` and the provided `requirements.txt` file.
+   ```bash
+   pip install -r requirements.txt
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <repository_url>
-    cd object_detection
-    ```
-
-2.  **Create and activate the Conda environment:**
-    ```bash
-    conda create -n object_detection python=3.12 -y
-    conda activate object_detection
-    ```
-
-3.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
 
 ## Project Structure
 
 ```
 object_detection/
-├── composites/         # Generated synthetic dataset (images & labels)
-├── configs/            # Configuration files (e.g., config.yaml)
-├── data/               # Source single-object images
-├── outputs/            # Training outputs and model checkpoints
-├── src/                # Source code
-│   ├── evaluate.py     # Evaluation script
-│   ├── generate_composites.py # Script to generate synthetic data
-│   ├── inference.py    # Inference script for detection
-│   └── train.py        # Training script
-├── tests/              # Inference results
-├── requirements.txt    # Python dependencies
-├── yolov8n.pt          # Pretrained YOLOv8 nano model
-└── GEMINI.md           # Agent context (internal)
+├── composites/                 # Generated synthetic dataset (images & labels)
+├── configs/                    # Configuration files for composite dataset (e.g., config.yaml)
+├── data/                       # Source single-object images
+├── outputs/                    # Training outputs and model checkpoints
+├── src/                        # Source code
+│   ├── evaluate.py             # Evaluation script
+│   ├── generate_composites.py  # Script to generate synthetic data
+│   ├── inference.py            # Inference script for detection
+│   └── train.py                # Training script
+├── tests/                      # Inference results
+├── requirements.txt            # Python dependencies
 ```
+## Workflow
 
-## Usage
+### 1. Dataset Download
+Download the dataset from the following link:
+[Google Drive Link](https://drive.google.com/drive/folders/1lQW22uf1tpphMuNlPRoQ8M4smt9w9qLB?usp=drive_link)
 
-### 1. Generate Synthetic Composites
+Extract/place the dataset folder (containing the 39 class subfolders) into the project directory so that it resides at `data/`.
+
+### 2. Generate Synthetic Composites
 
 Generate a dataset of composite images from the single-object source images in `data/`.
 
 ```bash
 python src/generate_composites.py
 ```
-*(Check the script for optional arguments like number of images, etc.)*
+*(Check the script for optional arguments)*
 
-### 2. Train the Model
+### 3. Train the Model
 
 Fine-tune the YOLOv8 model on the generated composites.
 
 ```bash
 python src/train.py
 ```
-*(This will save the best model to `outputs/yolov8n_transfer/weights/best.pt`)*
+*(This will save the best model to `./outputs/yolov8n_transfer/weights/best.pt`)*
+*(Check the script for optional arguments like yolo model, etc.)*
 
 ### 3. Evaluate the Model
 
 Evaluate the trained model on the test set.
 
 ```bash
-python src/evaluate.py --model-path outputs/yolov8n_transfer/weights/best.pt
+python src/evaluate.py --model-path <trained_model_path>
 ```
+*(e.g. python src/evaluate.py --model-path outputs/yolov8n_transfer/weights/best.pt)*
 
 ### 4. Run Inference
 
@@ -91,11 +102,6 @@ Detect objects in a specific image.
 
 ```bash
 python src/inference.py <model_path> <image_path>
-```
-
-**Example:**
-```bash
-python src/inference.py outputs/yolov8n_transfer/weights/best.pt data/OBJ_001/001.jpg
 ```
 
 The annotated image and detection results will be saved in the `tests/` directory (e.g., `tests/detection_1.jpg`, `tests/detection_1.txt`).
