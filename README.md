@@ -18,15 +18,6 @@ A YOLOv8 based object detection pipeline capable of detecting, classifying, and 
     - Automated train/val/test splitting.
     - Full re-training and Transfer Learning support.
     - Inference on new images.
-  
-## Project Overview
-
-*   **Goal:** Build a multi-object detection system.
-*   **Method:**
-    1.  Generate synthetic composite images from single-object source images.
-    2.  Fine-tune a pretrained YOLOv8 model on these composites.
-    3.  Evaluate model performance (mAP, Precision, Recall).
-    4.  Run inference on new images.
 
 ## Environment Setup
 
