@@ -34,7 +34,6 @@ This project uses Anaconda or Miniconda environment.
    ```bash
    pip install -r requirements.txt
 
-
 ## Project Structure
 
 ```
