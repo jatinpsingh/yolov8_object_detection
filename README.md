@@ -1,4 +1,4 @@
-# Object Detection & Localization Project
+# Object Detection & Localization with YOLOv8
 
 A YOLOv8 based object detection pipeline capable of detecting, classifying, and locating multiple objects in a single composite image. This project supports fully retraining YOLOv8 models as well as fine tuning pretrained YOLO models using transfer learning.
 
