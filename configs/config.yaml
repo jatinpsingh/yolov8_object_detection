@@ -1,0 +1,27 @@
+batches:
+  - name: batch1
+    obj_range: [0, 4]
+    obj_size: 224
+  - name: batch2
+    obj_range: [5, 10]
+    obj_size: 160
+  - name: batch3
+    obj_range: [11, 20]
+    obj_size: 112
+  - name: batch4
+    obj_range: [21, 30]
+    obj_size: 80
+
+test_batches:
+  - name: batch1
+    obj_range: [0, 4]
+    obj_size: 224
+  - name: batch2
+    obj_range: [5, 10]
+    obj_size: 160
+  - name: batch3
+    obj_range: [11, 20]
+    obj_size: 112
+  - name: batch4
+    obj_range: [21, 30]
+    obj_size: 80
