@@ -50,6 +50,7 @@ coverage.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb
 
 # VS Code
 .vscode/
@@ -64,12 +65,10 @@ coverage.xml
 data/
 composites/
 GEMINI.md
-
-# Training outputs
-outputs/
-
-# Inference results
 tests/
+
+# Results
+runs/
 
 # Checkpoints
 *.pt

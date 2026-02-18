@@ -1,27 +1,130 @@
 batches:
-  - name: batch1
-    obj_range: [0, 4]
-    obj_size: 224
-  - name: batch2
+  # ==========================================================================
+  # Tier 1 (20%): Single object, large scale — solves letterbox/closeup issue
+  # Small canvas so YOLO letterbox-upscales during training (matches inference)
+  # ==========================================================================
+  - name: single_closeup_sm
+    obj_range: [1, 1]
+    obj_size: 300
+    canvas_size: 640
+    bg_type: random
+    count: 500
+
+  - name: single_closeup_md
+    obj_range: [1, 1]
+    obj_size: 500
+    canvas_size: 800
+    bg_type: random
+    count: 500
+
+  # ==========================================================================
+  # Tier 2 (15%): Single object, medium scale
+  # ==========================================================================
+  - name: single_medium
+    obj_range: [1, 1]
+    obj_size: 400
+    canvas_size: 1280
+    bg_type: random
+    count: 750
+
+  # ==========================================================================
+  # Tier 3 (15%): Sparse scene, 2-4 objects
+  # ==========================================================================
+  - name: sparse_mixed
+    obj_range: [2, 4]
+    obj_size: 300
+    canvas_size: 1024
+    bg_type: random
+    count: 750
+
+  # ==========================================================================
+  # Tier 4 (20%): Medium density, 5-10 objects
+  # ==========================================================================
+  - name: medium_density
     obj_range: [5, 10]
     obj_size: 160
-  - name: batch3
+    canvas_size: 1280
+    bg_type: random
+    count: 1000
+
+  # ==========================================================================
+  # Tier 5 (15%): Dense scene, 11-20 objects
+  # ==========================================================================
+  - name: dense_scene
     obj_range: [11, 20]
     obj_size: 112
-  - name: batch4
+    canvas_size: 1280
+    bg_type: noise
+    count: 750
+
+  # ==========================================================================
+  # Tier 6 (10%): Very dense, 21-30 objects
+  # ==========================================================================
+  - name: very_dense
     obj_range: [21, 30]
     obj_size: 80
+    canvas_size: 1280
+    bg_type: noise
+    count: 500
+
+  # ==========================================================================
+  # Tier 7 (5%): Empty scenes — reduces false positives
+  # ==========================================================================
+  - name: empty_scene
+    obj_range: [0, 0]
+    obj_size: 1       # unused but required by schema
+    canvas_size: 1280
+    bg_type: random
+    count: 250
+
 
 test_batches:
-  - name: batch1
-    obj_range: [0, 4]
-    obj_size: 224
-  - name: batch2
+  # Uniform coverage across all scenarios for balanced evaluation
+  - name: single_closeup
+    obj_range: [1, 1]
+    obj_size: 300
+    canvas_size: 640
+    bg_type: random
+    count: 50
+
+  - name: single_medium
+    obj_range: [1, 1]
+    obj_size: 400
+    canvas_size: 1280
+    bg_type: random
+    count: 50
+
+  - name: sparse
+    obj_range: [2, 4]
+    obj_size: 300
+    canvas_size: 1024
+    bg_type: random
+    count: 50
+
+  - name: medium_density
     obj_range: [5, 10]
     obj_size: 160
-  - name: batch3
+    canvas_size: 1280
+    bg_type: random
+    count: 50
+
+  - name: dense
     obj_range: [11, 20]
     obj_size: 112
-  - name: batch4
+    canvas_size: 1280
+    bg_type: noise
+    count: 50
+
+  - name: very_dense
     obj_range: [21, 30]
     obj_size: 80
+    canvas_size: 1280
+    bg_type: noise
+    count: 50
+
+  - name: empty
+    obj_range: [0, 0]
+    obj_size: 1
+    canvas_size: 1280
+    bg_type: random
+    count: 25

@@ -25,6 +25,10 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
 # Structure: {'train': {class_id: [paths]}, 'val': {...}, 'test': {...}}
 SHARED_DATASET = {}
 
+# Supported background types
+BG_TYPES = ["noise", "solid", "white", "black", "gradient"]
+
+
 def load_config(config_path: Path) -> Dict:
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
@@ -44,6 +48,31 @@ def load_config(config_path: Path) -> Dict:
             if "obj_size" not in batch or batch["obj_size"] <= 0:
                 raise ValueError(f"Batch {batch['name']} invalid 'obj_size'")
             
+            # Validate bg_type if specified
+            bg_type = batch.get("bg_type", "noise")
+            if bg_type not in BG_TYPES and bg_type != "random":
+                raise ValueError(
+                    f"Batch {batch['name']} invalid 'bg_type': {bg_type}. "
+                    f"Must be one of {BG_TYPES + ['random']}"
+                )
+            
+            # Validate canvas_size if specified
+            canvas_size = batch.get("canvas_size", None)
+            if canvas_size is not None and canvas_size <= 0:
+                raise ValueError(f"Batch {batch['name']} invalid 'canvas_size': must be > 0")
+            
+            # Warn if obj_size exceeds canvas_size (will be clamped at generation time)
+            if canvas_size is not None and batch["obj_size"] > canvas_size * 0.85:
+                print(
+                    f"Warning: Batch '{batch['name']}' obj_size ({batch['obj_size']}) is large "
+                    f"relative to canvas_size ({canvas_size}). Will be clamped during generation."
+                )
+            
+            # Validate count if specified
+            count = batch.get("count", None)
+            if count is not None and count <= 0:
+                raise ValueError(f"Batch {batch['name']} invalid 'count': must be > 0")
+            
             if batch["name"] in seen_names:
                 raise ValueError(f"Duplicate batch name '{batch['name']}' in {section_name}")
             seen_names.add(batch["name"])
@@ -53,6 +82,7 @@ def load_config(config_path: Path) -> Dict:
         validate_batch_list(config["test_batches"], "test_batches")
         
     return config
+
 
 def load_dataset(data_dir: Path) -> Tuple[Dict[int, List[Path]], List[str]]:
     if not data_dir.exists():
@@ -64,14 +94,17 @@ def load_dataset(data_dir: Path) -> Tuple[Dict[int, List[Path]], List[str]]:
 
     for class_id, class_dir in enumerate(subdirs):
         class_names.append(class_dir.name)
-        images = sorted(list(class_dir.glob("*.jpg")) + 
-                        list(class_dir.glob("*.jpeg")) + 
-                        list(class_dir.glob("*.png")))
+        images = sorted(
+            list(class_dir.glob("*.jpg")) + 
+            list(class_dir.glob("*.jpeg")) + 
+            list(class_dir.glob("*.png"))
+        )
         if images:
             dataset[class_id] = images
     
     print(f"Loaded {sum(len(v) for v in dataset.values())} images from {len(dataset)} classes.")
     return dataset, class_names
+
 
 def split_source_dataset(dataset: Dict[int, List[Path]], seed: int) -> Dict[str, Dict[int, List[Path]]]:
     """Splits source images into train (80%), val (10%), test (10%) pools to prevent leakage."""
@@ -85,30 +118,70 @@ def split_source_dataset(dataset: Dict[int, List[Path]], seed: int) -> Dict[str,
         n = len(imgs)
         n_train = int(n * 0.8)
         n_val = int(n * 0.1)
-        # Ensure at least 1 image per split if possible, though n should be large
-        if n_train == 0 and n > 0: n_train = 1
+        # Ensure at least 1 image per split if possible
+        if n_train == 0 and n > 0:
+            n_train = 1
         
         splits["train"][class_id] = imgs[:n_train]
-        splits["val"][class_id] = imgs[n_train:n_train+n_val]
-        splits["test"][class_id] = imgs[n_train+n_val:]
+        splits["val"][class_id] = imgs[n_train:n_train + n_val]
+        splits["test"][class_id] = imgs[n_train + n_val:]
         
     return splits
+
 
 def init_worker(shared_data):
     global SHARED_DATASET
     SHARED_DATASET = shared_data
 
-def create_background(size: int, seed: int) -> Image.Image:
+
+def create_background(size: int, seed: int, bg_type: str = "noise") -> Image.Image:
+    """Creates a background image of the given type.
+    
+    Supported types:
+        noise    - Random color base + gaussian noise (original behavior)
+        solid    - Random solid color
+        white    - Pure white
+        black    - Pure black
+        gradient - Linear gradient between two random colors
+        random   - Randomly picks one of the above
+    """
     rng = np.random.default_rng(seed)
     
-    color = tuple(rng.integers(0, 256, size=3))
-    img = Image.new("RGB", (size, size), color)
+    if bg_type == "random":
+        bg_type = rng.choice(BG_TYPES)
     
-    img_arr = np.array(img).astype(float)
-    noise = rng.normal(0, 25, img_arr.shape)
-    img_arr = np.clip(img_arr + noise, 0, 255).astype(np.uint8)
+    if bg_type == "white":
+        return Image.new("RGB", (size, size), (255, 255, 255))
     
-    return Image.fromarray(img_arr)
+    elif bg_type == "black":
+        return Image.new("RGB", (size, size), (0, 0, 0))
+    
+    elif bg_type == "solid":
+        color = tuple(int(c) for c in rng.integers(0, 256, size=3))
+        return Image.new("RGB", (size, size), color)
+    
+    elif bg_type == "gradient":
+        color1 = rng.integers(0, 256, size=3).astype(np.float64)
+        color2 = rng.integers(0, 256, size=3).astype(np.float64)
+        # Vectorized gradient (vertical or horizontal)
+        t = np.linspace(0, 1, size).reshape(-1, 1)
+        gradient_1d = (color1 * (1 - t) + color2 * t).astype(np.uint8)  # (size, 3)
+        if rng.random() > 0.5:
+            # Vertical gradient: broadcast across columns
+            arr = np.broadcast_to(gradient_1d[:, np.newaxis, :], (size, size, 3)).copy()
+        else:
+            # Horizontal gradient: broadcast across rows
+            arr = np.broadcast_to(gradient_1d[np.newaxis, :, :], (size, size, 3)).copy()
+        return Image.fromarray(arr)
+    
+    else:  # "noise" (default / original behavior)
+        color = tuple(int(c) for c in rng.integers(0, 256, size=3))
+        img = Image.new("RGB", (size, size), color)
+        img_arr = np.array(img).astype(np.float32)
+        noise = rng.normal(0, 25, img_arr.shape).astype(np.float32)
+        img_arr = np.clip(img_arr + noise, 0, 255).astype(np.uint8)
+        return Image.fromarray(img_arr)
+
 
 def get_tight_bbox(img: Image.Image) -> Tuple[int, int, int, int]:
     try:
@@ -126,26 +199,42 @@ def get_tight_bbox(img: Image.Image) -> Tuple[int, int, int, int]:
     
     return min_x, min_y, (max_x - min_x + 1), (max_y - min_y + 1)
 
-def augment_object(img_path: Path, obj_size: int, is_train: bool, rng: np.random.Generator) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
+
+def augment_object(
+    img_path: Path, obj_size: int, canvas_size: int,
+    is_train: bool, rng: np.random.Generator
+) -> Tuple[Image.Image, Tuple[int, int, int, int]]:
+    """Load, resize, and augment a single object image.
+    
+    The effective obj_size is clamped to 85% of canvas_size to leave room
+    for rotation expansion and placement margin.
+    """
     with Image.open(img_path) as img:
         img = img.convert("RGBA")
         
+        # Clamp obj_size to prevent objects exceeding canvas
+        max_obj_size = int(canvas_size * 0.85)
+        effective_size = min(obj_size, max_obj_size)
+        
         if is_train:
-            scale_factor = rng.uniform(0.85, 1.15)
+            scale_factor = rng.uniform(0.7, 1.3)
         else:
             scale_factor = 1.0
             
-        target_size = int(obj_size * scale_factor)
+        target_size = int(effective_size * scale_factor)
+        # Safety clamp after scaling
+        target_size = min(target_size, max_obj_size)
+        target_size = max(target_size, 16)  # minimum viable size
         
         # Resize preserving aspect ratio
         w, h = img.size
         aspect = w / h
         if aspect > 1:
             new_w = target_size
-            new_h = int(target_size / aspect)
+            new_h = max(1, int(target_size / aspect))
         else:
             new_h = target_size
-            new_w = int(target_size * aspect)
+            new_w = max(1, int(target_size * aspect))
             
         img = img.resize((new_w, new_h), Image.Resampling.BILINEAR)
 
@@ -156,8 +245,18 @@ def augment_object(img_path: Path, obj_size: int, is_train: bool, rng: np.random
             img = ImageOps.mirror(img)
             
         angle = rng.uniform(-30, 30)
-        # expand=True to avoid cropping
-        img = img.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True, fillcolor=(0, 0, 0, 0))
+        img = img.rotate(
+            angle, resample=Image.Resampling.BICUBIC,
+            expand=True, fillcolor=(0, 0, 0, 0)
+        )
+        
+        # Downscale if rotation expansion made it too large for canvas
+        if img.width > canvas_size or img.height > canvas_size:
+            downscale = min(canvas_size / img.width, canvas_size / img.height) * 0.95
+            img = img.resize(
+                (max(1, int(img.width * downscale)), max(1, int(img.height * downscale))),
+                Image.Resampling.BILINEAR
+            )
         
         r, g, b, a = img.split()
         rgb_img = Image.merge("RGB", (r, g, b))
@@ -179,15 +278,21 @@ def augment_object(img_path: Path, obj_size: int, is_train: bool, rng: np.random
         
         return img, bbox
 
-def check_iou(box1: Tuple[float, float, float, float], boxes: List[Tuple[float, float, float, float]]) -> bool:
+
+def check_iou(
+    box1: Tuple[float, float, float, float],
+    boxes: List[Tuple[float, float, float, float]]
+) -> bool:
     x1, y1, w1, h1 = box1
     box1_area = w1 * h1
-    if box1_area <= 0: return False
+    if box1_area <= 0:
+        return False
 
     for b in boxes:
         x2, y2, w2, h2 = b
         box2_area = w2 * h2
-        if box2_area <= 0: continue
+        if box2_area <= 0:
+            continue
 
         xi1 = max(x1, x2)
         yi1 = max(y1, y2)
@@ -205,14 +310,15 @@ def check_iou(box1: Tuple[float, float, float, float], boxes: List[Tuple[float, 
             
     return False
 
+
 def generate_single_composite(task_args) -> Dict:
     (global_idx, batch_name, obj_range, obj_size, canvas_size, is_train, 
-     output_dirs, seed, split_name) = task_args
+     output_dirs, seed, split_name, bg_type) = task_args
     
     random.seed(seed)
     rng = np.random.default_rng(seed)
     
-    background = create_background(canvas_size, seed)
+    background = create_background(canvas_size, seed, bg_type)
     
     num_objects = random.randint(obj_range[0], obj_range[1])
     
@@ -229,11 +335,12 @@ def generate_single_composite(task_args) -> Dict:
     for _ in range(num_objects):
         class_id = random.choice(available_classes)
         images = source_pool[class_id]
-        if not images: continue
+        if not images:
+            continue
         
         img_path = random.choice(images)
         
-        img_obj, bbox_rel = augment_object(img_path, obj_size, is_train, rng)
+        img_obj, bbox_rel = augment_object(img_path, obj_size, canvas_size, is_train, rng)
         
         bx, by, bw, bh = bbox_rel
         if bw <= 0 or bh <= 0:
@@ -266,10 +373,7 @@ def generate_single_composite(task_args) -> Dict:
                 placed_boxes.append(abs_box)
                 placed = True
                 break
-        
-        if not placed:
-            pass
-
+    
     filename = f"{batch_name}_{global_idx:06d}"
     
     img_out_path = output_dirs["images"] / split_name / f"{filename}.jpg"
@@ -280,17 +384,18 @@ def generate_single_composite(task_args) -> Dict:
     with open(lbl_out_path, "w") as f:
         f.write("\n".join(labels))
         
-    return {"success": True, "num_objects": len(labels)}
+    return {"success": True, "num_objects": len(labels), "batch": batch_name}
+
 
 def main():
     parser = argparse.ArgumentParser(description="Synthetic Composite Image Generator")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Source data directory")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH, help="Path to config yaml")
-    parser.add_argument("--canvas-size", type=int, default=1280, help="Canvas size (pixels)")
+    parser.add_argument("--canvas-size", type=int, default=1280, help="Default canvas size (pixels)")
     parser.add_argument("--train-ratio", type=float, default=0.9, help="Train/Val split ratio")
-    parser.add_argument("--batch-size", type=int, default=500, help="Images per train/val batch")
-    parser.add_argument("--test-size", type=int, default=50, help="Images per test batch")
+    parser.add_argument("--batch-size", type=int, default=500, help="Default images per train/val batch")
+    parser.add_argument("--test-size", type=int, default=50, help="Default images per test batch")
     parser.add_argument("--workers", type=int, default=os.cpu_count(), help="Number of parallel workers")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     
@@ -322,6 +427,7 @@ def main():
     test_imgs = sum(len(v) for v in split_dataset_map["test"].values())
     print(f"Source split: Train={train_imgs}, Val={val_imgs}, Test={test_imgs} (Total={total_imgs})")
 
+    # --- Build train/val tasks ---
     tasks = []
     random.seed(args.seed)
     
@@ -329,31 +435,48 @@ def main():
     if not batches:
         print("Warning: No train/val batches defined in config.")
 
-    total_tv_images = len(batches) * args.batch_size
+    # Compute total train/val images (sum of per-batch counts)
+    batch_counts = []
+    for batch in batches:
+        count = batch.get("count", args.batch_size)
+        batch_counts.append(count)
+    total_tv_images = sum(batch_counts)
     
+    # Determine train/val split indices across all batches
     indices = list(range(total_tv_images))
     random.shuffle(indices)
     split_idx = int(total_tv_images * args.train_ratio)
     train_indices = set(indices[:split_idx])
     
     global_counter = 0
-    for batch in batches:
-        for _ in range(args.batch_size):
+    print("\nTrain/Val batch plan:")
+    for batch, count in zip(batches, batch_counts):
+        canvas_size = batch.get("canvas_size", args.canvas_size)
+        bg_type = batch.get("bg_type", "noise")
+        print(
+            f"  {batch['name']:<25} | count={count:<5} | canvas={canvas_size:<5} "
+            f"| obj_size={batch['obj_size']:<4} | obj_range={batch['obj_range']} "
+            f"| bg={bg_type}"
+        )
+        for _ in range(count):
             split = "train" if global_counter in train_indices else "val"
             is_train = (split == "train")
             
-            task = (global_counter, batch["name"], batch["obj_range"], batch["obj_size"], 
-                    args.canvas_size, is_train, 
-                    {"images": args.output / "images", "labels": args.output / "labels"},
-                    args.seed + global_counter, split)
+            task = (
+                global_counter, batch["name"], batch["obj_range"], batch["obj_size"],
+                canvas_size, is_train,
+                {"images": args.output / "images", "labels": args.output / "labels"},
+                args.seed + global_counter, split, bg_type
+            )
             tasks.append(task)
             global_counter += 1
 
+    # --- Build test tasks ---
     test_batches = config.get("test_batches", [])
     test_counter = 0
-    
     seen_test_names = set()
     
+    print("\nTest batch plan:")
     for batch in test_batches:
         b_name = batch["name"]
         if not b_name.startswith("test_"):
@@ -364,20 +487,38 @@ def main():
             sys.exit(1)
         seen_test_names.add(b_name)
         
-        for _ in range(args.test_size):
-            task = (test_counter, b_name, batch["obj_range"], batch["obj_size"],
-                    args.canvas_size, False,
-                    {"images": args.output / "images", "labels": args.output / "labels"},
-                    args.seed + total_tv_images + test_counter, "test")
+        count = batch.get("count", args.test_size)
+        canvas_size = batch.get("canvas_size", args.canvas_size)
+        bg_type = batch.get("bg_type", "noise")
+        print(
+            f"  {b_name:<25} | count={count:<5} | canvas={canvas_size:<5} "
+            f"| obj_size={batch['obj_size']:<4} | obj_range={batch['obj_range']} "
+            f"| bg={bg_type}"
+        )
+        for _ in range(count):
+            task = (
+                test_counter, b_name, batch["obj_range"], batch["obj_size"],
+                canvas_size, False,
+                {"images": args.output / "images", "labels": args.output / "labels"},
+                args.seed + total_tv_images + test_counter, "test", bg_type
+            )
             tasks.append(task)
             test_counter += 1
 
-    print(f"Planned {len(tasks)} image generation tasks ({len(batches)} train/val batches, {len(test_batches)} test batches).")
-    print(f"Train/Val split: {len(train_indices)} train, {total_tv_images - len(train_indices)} val.")
+    n_train = len([t for t in tasks if t[8] == "train"])
+    n_val = len([t for t in tasks if t[8] == "val"])
+    n_test = len([t for t in tasks if t[8] == "test"])
+    print(f"\nTotal tasks: {len(tasks)} (train={n_train}, val={n_val}, test={n_test})")
 
-    with ProcessPoolExecutor(max_workers=args.workers, initializer=init_worker, initargs=(split_dataset_map,)) as executor:
+    # --- Generate ---
+    with ProcessPoolExecutor(
+        max_workers=args.workers, initializer=init_worker, initargs=(split_dataset_map,)
+    ) as executor:
         if tqdm:
-            results = list(tqdm(executor.map(generate_single_composite, tasks), total=len(tasks), unit="img"))
+            results = list(tqdm(
+                executor.map(generate_single_composite, tasks),
+                total=len(tasks), unit="img"
+            ))
         else:
             results = []
             for i, res in enumerate(executor.map(generate_single_composite, tasks)):
@@ -385,6 +526,13 @@ def main():
                 if (i + 1) % 100 == 0:
                     print(f"Processed {i + 1}/{len(tasks)} images...")
 
+    # --- Summary ---
+    success_count = sum(1 for r in results if r.get("success"))
+    fail_count = len(results) - success_count
+    total_objects = sum(r.get("num_objects", 0) for r in results if r.get("success"))
+    print(f"\nGeneration summary: {success_count} succeeded, {fail_count} failed, {total_objects} total objects placed.")
+
+    # --- Write data.yaml ---
     data_yaml_content = {
         "path": str(args.output.resolve()),
         "train": "images/train",
@@ -399,6 +547,7 @@ def main():
     
     print(f"Generation complete. Data saved to {args.output}")
     print(f"Created data.yaml with {len(class_names)} classes.")
+
 
 if __name__ == "__main__":
     main()
