@@ -41,13 +41,9 @@ object_detection/
 ├── composites/                 # Generated synthetic dataset (images & labels)
 ├── configs/                    # Configuration files for composite dataset (e.g., config.yaml)
 ├── data/                       # Source single-object images
-├── outputs/                    # Training outputs and model checkpoints
+├── runs/                       # Training/Val outputs and model checkpoints
 ├── src/                        # Source code
-│   ├── evaluate.py             # Evaluation script
 │   ├── generate_composites.py  # Script to generate synthetic data
-│   ├── inference.py            # Inference script for detection
-│   └── train.py                # Training script
-├── tests/                      # Inference results
 ├── requirements.txt            # Python dependencies
 ```
 ## Workflow
@@ -72,29 +68,28 @@ python src/generate_composites.py
 Fine-tune the YOLOv8 model on the generated composites.
 
 ```bash
-python src/train.py
+yolo detect train model=yolov8s.pt data=composites/data.yaml imgsz=640 batch=16 epochs=100 freeze=10 project=outputs name=yolov8s_transfer
 ```
-*(This will save the best model to `./outputs/yolov8n_transfer/weights/best.pt`)*
-*(Check the script for optional arguments like yolo model, etc.)*
+*(This will save the best model to `./runs/detect/outputs/yolov8n_transfer/weights/best.pt`)*
+*(you can adjust parameters like model, imgsz, batch etc.)*
 
 ### 3. Evaluate the Model
 
 Evaluate the trained model on the test set.
 
 ```bash
-python src/evaluate.py --model-path <trained_model_path>
+yolo detect val model=<path_to_trained_model> data=composites/data.yaml split=test
 ```
-*(e.g. python src/evaluate.py --model-path outputs/yolov8n_transfer/weights/best.pt)*
 
 ### 4. Run Inference
 
 Detect objects in a specific image.
 
 ```bash
-python src/inference.py <model_path> <image_path>
+yolo detect predict model=<path_to_trained_model> source=<path_to_test_image>
 ```
 
-The annotated image and detection results will be saved in the `tests/` directory (e.g., `tests/detection_1.jpg`, `tests/detection_1.txt`).
+The annotated image and detection results will be saved in the `runs/detect/` directory.
 
 ## Notes
 
