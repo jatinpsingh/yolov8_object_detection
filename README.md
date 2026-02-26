@@ -2,6 +2,8 @@
 
 A YOLOv8 based object detection pipeline capable of detecting, classifying, and locating multiple objects in a single composite image. This project supports fully retraining YOLOv8 models as well as fine tuning pretrained YOLO models using transfer learning.
 
+<img width="2600" height="600" alt="random_image_grid" src="https://github.com/user-attachments/assets/8c7d1082-d5d4-43f1-8972-355d4862ffd9" />
+
 ## Table of Contents
 - [Project Overview](#project-overview)
 - [Environment Setup](#environment-setup)
